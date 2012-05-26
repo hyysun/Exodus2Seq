@@ -1,2 +1,6 @@
+<<<<<<< HEAD
 MapReduce job to convert a set of raw exodus files to corresponding sequence files.
 The mapper just reads the file name, fetches the file and converts it into a set of sequence files.
+=======
+Convert Exodus file to Sequence file with TypedBytes Writable.
+>>>>>>> afa9662750b99b9380e57e27588cc72828614953
