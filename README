@@ -1,0 +1,2 @@
+MapReduce job to convert a set of raw exodus files to corresponding sequence files.
+The mapper just reads the file name, fetches the file and converts it into a set of sequence files.
