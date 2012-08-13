@@ -3,10 +3,16 @@ MapReduce job to convert a set of raw exodus files to corresponding sequence fil
 The mapper just reads the file name, fetches the file and converts it into a set of 
 sequence files.
 
+History
+-------
+:2012-06-22: avoid PICKLE type code
+:2012-08-09: fix the bugs if tasks fail 
+
 Example(on ICME Hadoop):
 
 python mr_exodus2seq_hadoop.py hdfs://icme-hadoop1.localdomain/user/yangyang/simform/input.txt \
--r hadoop -t 10 -d hdfs://icme-hadoop1.localdomain/user/yangyang/simform/data --variables TEMP
+-r hadoop -t 10 -d hdfs://icme-hadoop1.localdomain/user/yangyang/simform/data --variables TEMP,HEAT_FLUX_x,\
+HEAT_FLUX_y,HEAT_FLUX_z
 
 """
 
@@ -45,9 +51,23 @@ def convert(inputfile, steps, outdir, variables):
     coordx = f.cdf.variables["coordx"]
     xdata = coordx.getValue()
     
+    # To avoid PICKLE type in typedbytes files
+    timedata2 = []
+    for i, ele in enumerate(timedata):
+        timedata2.append(float(ele))
+    xdata2 = []
+    for i, ele in enumerate(xdata):
+        xdata2.append(float(ele))
+    ydata2 = []
+    for i, ele in enumerate(ydata):
+        ydata2.append(float(ele))
+    zdata2 = []
+    for i, ele in enumerate(zdata):
+        zdata2.append(float(ele))
+    
     # Get variable data
     varnames = f.node_variable_names()
-    vardata=[]
+    vardata = []
     for i, var in enumerate(Vars):
         vdata = None
         for vi,n in enumerate(varnames):
@@ -86,22 +106,25 @@ def convert(inputfile, steps, outdir, variables):
         key = TypedBytesWritable()
         value = TypedBytesWritable()
         key.set(-1)
-        value.set(xdata)
+        value.set(xdata2)
         writer.append(key,value)
         key.set(-2)
-        value.set(ydata)
+        value.set(ydata2)
         writer.append(key,value)
         key.set(-3)
-        value.set(zdata)
+        value.set(zdata2)
         writer.append(key,value)
         
         for j in xrange(begin, end+1):
-            key.set((j,timedata[j]))
-            valuedata=[]
+            key.set((j,timedata2[j]))
+            valuedata = []
             for m, var in enumerate(vardata):
                 name = var[0]
                 data = var[1][j]
-                valuedata.append((name,data))
+                data2 = []
+                for m, ele in enumerate(data):
+                    data2.append(float(ele))
+                valuedata.append((name,data2))
             value.set(valuedata)
             writer.append(key,value)
         writer.close()
@@ -167,20 +190,26 @@ class MRExodus2Seq(MRJob):
         
         # step 1: fetch the exodus file from Hadoop cluster
         file = os.path.basename(line)
+        if os.path.isfile(os.path.join('./', file)):
+            call(['rm', os.path.join('./', file)])
         check_call(['hadoop', 'fs', '-copyToLocal', line, os.path.join('./', file)])
         outdir = os.path.basename(line)
         ind = outdir.rfind('.')
         outdir = outdir[0:ind]
-        check_call(['mkdir', os.path.join('./', outdir)])
+        if os.path.isdir(os.path.join('./', outdir)):
+            call(['rm', '-r', os.path.join('./', outdir)])
+        call(['mkdir', os.path.join('./', outdir)])
         
         # step 2: do our local processing
         result = convert(os.path.join('./', file), self.timesteps, os.path.join('./', outdir), self.variables)
         
         # step3: write back to Hadoop cluster
         for fname in os.listdir(os.path.join('./', outdir)):
-            check_call(['hadoop', 'fs', '-copyFromLocal', os.path.join('./',outdir,fname),os.path.join(self.outdir,outdir,fname)])
-        check_call(['rm', os.path.join('./', file)])
-        check_call(['rm', '-r', os.path.join('./', outdir)])
+            if call(['hadoop', 'fs', '-test', '-e', os.path.join(self.outdir,outdir,fname)]) == 0:
+                call(['hadoop', 'fs', '-rm', os.path.join(self.outdir,outdir,fname)])
+            call(['hadoop', 'fs', '-copyFromLocal', os.path.join('./',outdir,fname),os.path.join(self.outdir,outdir,fname)])
+        call(['rm', os.path.join('./', file)])
+        call(['rm', '-r', os.path.join('./', outdir)])
         
         #step 4: yield output key/value
         if result == True:
